@@ -1,4 +1,3 @@
-cat <<EOT > requirements.txt
 pytest
 psutil
 matplotlib
