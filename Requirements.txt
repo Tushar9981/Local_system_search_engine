@@ -1,0 +1,9 @@
+--------------------------
+TOOLS FOR USE:
+pytest
+psutil
+matplotlib
+pypdf
+-------------------------
+BASH_TEMINAL:
+pip install -r requirements.txt
