@@ -8,24 +8,16 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
 # ==========================================
-# 1. PREPROCESSOR & FILE SYSTEM MODULE
+# 1. PREPROCESSOR & FILENAME MODULE
 # ==========================================
 def preprocess_text(text: str) -> list[str]:
-    """Tokenizes text, converts to lowercase, and strips non-alphanumeric characters."""
+    """Tokenizes filename/path text, converts to lowercase, and strips non-alphanumeric characters."""
     tokens = []
     for word in text.lower().split():
         cleaned = "".join(char for char in word if char.isalnum())
         if cleaned:
             tokens.append(cleaned)
     return tokens
-
-def extract_text(file_path: str) -> str:
-    """Reads content from text-readable files safely."""
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
-    except Exception:
-        return ""
 
 # ==========================================
 # 2. HASHMAP INDEX MODULE
@@ -139,7 +131,7 @@ class SearchRanker:
 class WindowsSearchApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Inverted Index Search & Ranker System")
+        self.title("Filename Inverted Index & Ranker System")
         self.geometry("900x680")
 
         self.hash_idx = HashMapIndex()
@@ -157,7 +149,7 @@ class WindowsSearchApp(tk.Tk):
         ttk.Label(control_frame, text="Target Directory:").grid(row=0, column=0, sticky="w")
         
         self.path_entry = ttk.Entry(control_frame, width=50)
-        default_path = r"C:\Windows\System32" if os.name == "nt" else os.path.expanduser("~")
+        default_path = os.path.expanduser("~/Downloads")
         self.path_entry.insert(0, default_path)
         self.path_entry.grid(row=0, column=1, padx=5, pady=5)
 
@@ -190,7 +182,7 @@ class WindowsSearchApp(tk.Tk):
         self.btn_search.grid(row=0, column=2, padx=5, pady=5)
 
         # Output Text Box Area
-        results_frame = ttk.LabelFrame(self, text=" Ranked Search Results ", padding=10)
+        results_frame = ttk.LabelFrame(self, text=" Ranked File Search Results ", padding=10)
         results_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         self.result_text = scrolledtext.ScrolledText(results_frame, wrap="word", font=("Consolas", 10))
@@ -204,54 +196,54 @@ class WindowsSearchApp(tk.Tk):
 
         self.btn_index.config(state="disabled")
         self.btn_search.config(state="disabled")
-        self.status_label.config(text="Status: Crawling and Indexing files... Please wait.", foreground="orange")
+        self.status_label.config(text="Status: Scanning filenames... Please wait.", foreground="orange")
         
         # Execute parsing in a daemon thread to prevent Spyder UI freezing
         threading.Thread(target=self._build_indexes, args=(target_dir,), daemon=True).start()
 
     def _build_indexes(self, target_dir: str):
-        valid_extensions = {".txt", ".log", ".inf", ".ini", ".xml", ".cfg", ".py"}
         file_list = []
 
-        # Walk system folders safely
+        # Walk through directories to collect all filenames/paths
         for root, _, files in os.walk(target_dir):
             for file in files:
-                ext = os.path.splitext(file)[1].lower()
-                if ext in valid_extensions:
-                    file_list.append(os.path.join(root, file))
-                if len(file_list) >= 300:
+                # Skip virtual environment or git internals to keep results clean if desired
+                if "venv" in root or ".git" in root:
+                    continue
+                file_path = os.path.join(root, file)
+                file_list.append(file_path)
+                if len(file_list) >= 1500: # Limit to 1500 files for high performance
                     break
-            if len(file_list) >= 300:
+            if len(file_list) >= 1500:
                 break
 
         if not file_list:
-            self.after(0, self._indexing_failed, f"No readable text files found under '{target_dir}'.")
+            self.after(0, self._indexing_failed, f"No files found under '{target_dir}'.")
             return
 
         process = psutil.Process(os.getpid())
 
-        # 1. Build HashMap Index
+        # 1. Build HashMap Index using filenames & paths
         mem_before = process.memory_info().rss / (1024 * 1024)
         t0 = time.perf_counter()
         self.hash_idx = HashMapIndex()
 
         for idx, fpath in enumerate(file_list):
-            content = extract_text(fpath)
-            if content:
-                self.hash_idx.add_document(f"doc_{idx+1}", fpath, content)
+            # Index the filename + parent folder structure for accurate context matching
+            searchable_text = f"{os.path.basename(fpath)} {os.path.dirname(fpath)}"
+            self.hash_idx.add_document(f"doc_{idx+1}", fpath, searchable_text)
 
         t_hash_build = time.perf_counter() - t0
         m_hash = max(0.0, (process.memory_info().rss / (1024 * 1024)) - mem_before)
 
-        # 2. Build Trie Index
+        # 2. Build Trie Index using filenames & paths
         mem_before = process.memory_info().rss / (1024 * 1024)
         t0 = time.perf_counter()
         self.trie_idx = TrieIndex()
 
         for idx, fpath in enumerate(file_list):
-            content = extract_text(fpath)
-            if content:
-                self.trie_idx.add_document(f"doc_{idx+1}", fpath, content)
+            searchable_text = f"{os.path.basename(fpath)} {os.path.dirname(fpath)}"
+            self.trie_idx.add_document(f"doc_{idx+1}", fpath, searchable_text)
 
         t_trie_build = time.perf_counter() - t0
         m_trie = max(0.0, (process.memory_info().rss / (1024 * 1024)) - mem_before)
@@ -267,7 +259,7 @@ class WindowsSearchApp(tk.Tk):
         messagebox.showwarning("Indexing Failed", message)
 
     def _indexing_finished(self, doc_count, t_hash, m_hash, t_trie, m_trie):
-        self.status_label.config(text=f"Status: Done! Indexed {doc_count} system files.", foreground="green")
+        self.status_label.config(text=f"Status: Done! Indexed {doc_count} filenames.", foreground="green")
         self.btn_index.config(state="normal")
         self.btn_search.config(state="normal")
 
@@ -296,16 +288,16 @@ class WindowsSearchApp(tk.Tk):
             if matches:
                 for term, postings in list(matches.items())[:15]:
                     total_freq = sum(postings.values())
-                    self.result_text.insert(tk.END, f" • Term: '{term:<20}' -> Appears {total_freq} times across {len(postings)} docs\n")
+                    self.result_text.insert(tk.END, f" • Term: '{term:<20}' -> Appears in {len(postings)} file paths\n")
             else:
-                self.result_text.insert(tk.END, "No terms found matching this prefix.\n")
+                self.result_text.insert(tk.END, "No filename terms found matching this prefix.\n")
 
         else:
             t0 = time.perf_counter()
             results = self.ranker.search(query, top_k=15)
             latency = (time.perf_counter() - t0) * 1000
 
-            self.result_text.insert(tk.END, f"=== TF-IDF Ranked Search Results for '{query}' ===\n")
+            self.result_text.insert(tk.END, f"=== TF-IDF Ranked Filename Results for '{query}' ===\n")
             self.result_text.insert(tk.END, f"Latency: {latency:.3f} ms\n\n")
 
             if results:
@@ -314,7 +306,7 @@ class WindowsSearchApp(tk.Tk):
                     self.result_text.insert(tk.END, f"Rank {rank:<2} | Score: {score:.6f} | ID: {doc_id}\n")
                     self.result_text.insert(tk.END, f"        Path: {file_path}\n\n")
             else:
-                self.result_text.insert(tk.END, "No matching documents found.\n")
+                self.result_text.insert(tk.END, "No matching files found.\n")
 
 # Entry point for Spyder execution
 if __name__ == "__main__":
